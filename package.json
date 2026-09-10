@@ -1,0 +1,20 @@
+{
+  "name": "rxjs-ajax-progress",
+  "version": "1.0.0",
+  "description": "Generische RxJS-Pipeline für AJAX-Upload/-Download mit prozentualem Fortschritt (framework-frei).",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "test": "tsc && node --test dist/*.marble.test.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "typescript": "^5.5.0"
+  },
+  "dependencies": {
+    "rxjs": "^7.8.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
