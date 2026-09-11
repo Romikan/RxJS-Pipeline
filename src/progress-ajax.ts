@@ -1,47 +1,35 @@
 /**
- * progress-ajax.ts
- * ------------------------------------------------------------------
- * Generische, framework-freie RxJS-Pipeline für AJAX-Requests
- * (Upload UND Download) mit prozentualem Fortschritt.
+ * Generische, RxJS-Pipeline für AJAX-Requests mit Fortschritts-
+ * anzeige bei Upload und Download.
  *
- * Design-Idee:
- * 1. `ajax()` aus `rxjs/ajax` liefert bei aktiviertem
- *    `includeUploadProgress` / `includeDownloadProgress` zusätzlich
- *    zu der eigentlichen Antwort auch Zwischenereignisse vom Typ
- *    'upload_progress', 'upload_load', 'download_progress' und
- *    'download_load'.
- * 2. `toProgressEvents()` ist eine REINE Transformation (kein I/O),
- *    die diese Rohereignisse in ein einheitliches, leicht
- *    konsumierbares Format überführt. Weil sie rein ist, lässt sie
- *    sich hervorragend mit Marble-Tests prüfen – unabhängig von
- *    echten XHR-Aufrufen.
- * 3. `ajaxWithProgress()` verdrahtet `ajax()` mit `toProgressEvents()`
- *    und erlaubt zusätzlich das Injizieren einer alternativen
- *    "Ajax-Factory" (Dependency Injection), damit auch die komplette
- *    Pipeline ohne echten Netzwerkzugriff testbar ist.
+ * Aufbau:
+ * 1. ajax() aus rxjs/ajax liefert bei aktivierten Optionen
+ *    includeUploadProgress bzw. includeDownloadProgress neben
+ *    der eigentlichen Response auch Fortschrittsereignisse wie
+ *    upload_progress, upload_load, download_progress und
+ *    download_load.
+ * 2. toProgressEvents() transformiert diese Rohereignisse REIN
+ *    und ohne I/O in ein einheitliches, einfach konsumierbares
+ *    Format. Dadurch kann die Transformation unabhängig von
+ *    echten XHR-Aufrufen, z. B. mit Marble-Tests, getestet werden.
+ * 3. ajaxWithProgress() verbindet ajax() mit
+ *    toProgressEvents(). Zusätzlich kann eine alternative
+ *    "Ajax-Factory" injiziert werden. So lässt sich die komplette
+ *    Pipeline ohne echten Netzwerkzugriff testen.
  */
 
 import { Observable } from 'rxjs';
 import { filter, map, share } from 'rxjs/operators';
 import { ajax, AjaxConfig } from 'rxjs/ajax';
 
-// ---------------------------------------------------------------------------
-// Öffentliche Typen
-// ---------------------------------------------------------------------------
-
 export type ProgressDirection = 'upload' | 'download';
-
-/** Ein einzelnes Fortschritts-Ereignis (Upload ODER Download). */
 export interface AjaxProgressEvent {
   readonly type: 'progress';
   readonly direction: ProgressDirection;
   readonly loaded: number;
   readonly total: number;
-  /** Ganzzahliger Prozentwert 0–100 (0, falls `total` unbekannt ist). */
   readonly percent: number;
 }
-
-/** Das finale Ergebnis des Requests. */
 export interface AjaxResultEvent<T> {
   readonly type: 'result';
   readonly status: number;
@@ -51,10 +39,10 @@ export interface AjaxResultEvent<T> {
 export type AjaxProgressOrResult<T> = AjaxProgressEvent | AjaxResultEvent<T>;
 
 /**
- * Minimaler Ausschnitt der von `rxjs/ajax` gelieferten Rohereignisse,
- * den wir für das Mapping benötigen. Damit ist `toProgressEvents()`
- * unabhängig vom konkreten `AjaxResponse<T>`-Typ testbar (siehe
- * Marble-Tests: dort werden einfache Objekte dieser Form verwendet).
+ * Reduzierter Ausschnitt der von rxjs/ajax erzeugten Rohereignisse,
+ * der für das Mapping relevant ist. Dadurch bleibt toProgressEvents()
+ * unabhängig vom konkreten AjaxResponse<T>-Typ und kann in den
+ * Marble-Tests mit einfachen Objekten dieser Struktur getestet werden.
  */
 export interface RawAjaxEvent<T> {
   type: string;
@@ -64,12 +52,8 @@ export interface RawAjaxEvent<T> {
   response?: T;
 }
 
-/** Signatur einer Funktion, die einen "rohen" Ajax-Event-Stream liefert. */
+/** Beschreibt eine Funktion, die einen Stream unverarbeiteter Ajax-Ereignisse liefert. */
 export type AjaxFactory<T> = (config: AjaxConfig) => Observable<RawAjaxEvent<T>>;
-
-// ---------------------------------------------------------------------------
-// Reine Hilfsfunktionen
-// ---------------------------------------------------------------------------
 
 function toPercent(loaded: number, total: number): number {
   if (!total || total <= 0) {
@@ -79,10 +63,11 @@ function toPercent(loaded: number, total: number): number {
 }
 
 /**
- * Reiner, testbarer Operator:
- * wandelt die von rxjs/ajax gelieferten Rohereignisse in ein
- * einheitliches Fortschritts-/Ergebnis-Format um. Unbekannte
- * Ereignistypen (z. B. das interne 'open'-Ereignis) werden verworfen.
+ * Reiner und testbarer Operator:
+ * transformiert die von rxjs/ajax gelieferten Rohereignisse in ein
+ * einheitliches Format für Fortschritt und Ergebnis. Nicht relevante
+ * oder unbekannte Ereignistypen, z. B. das interne open-Ereignis,
+ * werden verworfen.
  */
 export function toProgressEvents<T>() {
   return (source: Observable<RawAjaxEvent<T>>): Observable<AjaxProgressOrResult<T>> =>
@@ -98,7 +83,7 @@ export function toProgressEvents<T>() {
               percent: toPercent(event.loaded ?? 0, event.total ?? 0),
             };
           case 'upload_load':
-            // Upload technisch abgeschlossen -> garantiert 100 %.
+            // Upload technisch abgeschlossen – Fortschritt wird auf 100 % gesetzt.
             return {
               type: 'progress',
               direction: 'upload',
@@ -115,7 +100,7 @@ export function toProgressEvents<T>() {
               percent: toPercent(event.loaded ?? 0, event.total ?? 0),
             };
           case 'download_load':
-            // Enthält die eigentliche Server-Antwort.
+         // Enthält die vom Server zurückgelieferte Antwort.
             return {
               type: 'result',
               status: event.status ?? 0,
@@ -129,21 +114,9 @@ export function toProgressEvents<T>() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Öffentliche Pipeline
-// ---------------------------------------------------------------------------
-
 /**
- * Generische AJAX-Pipeline mit Upload- UND Download-Fortschritt.
- * Funktioniert unverändert für:
- *  - Uploads (z. B. POST/PUT mit FormData/Blob als `body`)
- *  - Downloads (z. B. GET einer großen Datei)
- * Die Richtung ergibt sich implizit daraus, welche Ereignistypen
- * der Browser tatsächlich feuert.
- *
- * `ajaxFactory` ist standardmäßig das echte `ajax()` aus `rxjs/ajax`,
- * kann aber (z. B. in Tests) durch eine synthetische Quelle ersetzt
- * werden.
+ * Generische AJAX-Pipeline mit Unterstützung für Upload- und
+ * Download-Fortschritt.
  */
 export function ajaxWithProgress<T = unknown>(
   config: AjaxConfig,
@@ -155,13 +128,13 @@ export function ajaxWithProgress<T = unknown>(
     includeDownloadProgress: true,
   }).pipe(
     toProgressEvents<T>(),
-    // share(): mehrere Abonnenten (z. B. UI-Fortschrittsbalken UND
-    // Ergebnis-Handler) sollen sich einen einzigen Request teilen.
+    // `share()` stellt sicher, dass mehrere Abonnenten (z. B. UI-Fortschrittsbalken
+    // und Ergebnis-Handler) denselben Request gemeinsam nutzen.
     share()
   );
 }
 
-/** Hilfsoperator: nur die Prozentwerte EINER Richtung als Zahlen-Stream. */
+// Extrahiert die Prozentwerte einer Richtung als Zahlen-Stream.
 export function selectPercent(direction: ProgressDirection) {
   return (source: Observable<AjaxProgressOrResult<unknown>>): Observable<number> =>
     source.pipe(
@@ -173,7 +146,7 @@ export function selectPercent(direction: ProgressDirection) {
     );
 }
 
-/** Hilfsoperator: nur das finale Ergebnis (Response-Body). */
+// Extrahiert ausschließlich das finale Ergebnis, also den Response-Body.
 export function selectResult<T>() {
   return (source: Observable<AjaxProgressOrResult<T>>): Observable<T> =>
     source.pipe(
@@ -181,35 +154,3 @@ export function selectResult<T>() {
       map((event) => event.response)
     );
 }
-
-// ---------------------------------------------------------------------------
-// Beispiel-Verwendung (nicht Teil der Bibliothek, nur zur Dokumentation)
-// ---------------------------------------------------------------------------
-
-/*
-// Upload eines Files mit Fortschrittsanzeige:
-const upload$ = ajaxWithProgress<{ id: number }>({
-  url: '/api/upload',
-  method: 'POST',
-  body: formData,
-});
-
-upload$.pipe(selectPercent('upload')).subscribe((percent) => {
-  progressBar.style.width = `${percent}%`;
-});
-
-upload$.pipe(selectResult()).subscribe((result) => {
-  console.log('Hochgeladen, ID:', result.id);
-});
-
-// Download mit Fortschrittsanzeige:
-const download$ = ajaxWithProgress<Blob>({
-  url: '/api/files/report.pdf',
-  method: 'GET',
-  responseType: 'blob',
-});
-
-download$.pipe(selectPercent('download')).subscribe((percent) => {
-  downloadProgressBar.style.width = `${percent}%`;
-});
-*/

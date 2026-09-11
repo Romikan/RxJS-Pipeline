@@ -1,13 +1,15 @@
-// app.js
-// ---------------------------------------------------------------------------
-// Framework-freie Browser-Demo: bindet die generische Fortschritts-Pipeline
-// an reine DOM-APIs (input, button, div). Kein Angular/React/Vue etc.
-//
-// Läuft direkt im Browser (ES-Modul), lädt RxJS von einem CDN, damit kein
-// Build-Schritt nötig ist. Die eigentliche Fach-/Mapping-Logik entspricht
-// exakt `src/progress-ajax.ts` (siehe `toProgressEvents`, hier als reines
-// JS für den Direktbetrieb im Browser dupliziert).
-// ---------------------------------------------------------------------------
+/*
+* Framework-freie Browser-Demo: bindet die generische Fortschrittspipeline
+* über native DOM-APIs (input, button, div) ein. Es wird kein
+* Framework wie Angular, React oder Vue benötigt.
+*
+* Die Demo läuft direkt als ES-Modul im Browser und lädt RxJS über ein CDN.
+* Dadurch ist kein Build-Schritt erforderlich.
+*
+* Die fachliche Transformationslogik entspricht der von
+* src/progress-ajax.ts. toProgressEvents() wird dafür als reines
+* JavaScript direkt für den Browserbetrieb bereitgestellt.
+*/
 
 import { ajax } from 'https://esm.sh/rxjs@7.8.1/ajax';
 import { filter, map, share } from 'https://esm.sh/rxjs@7.8.1/operators';
@@ -17,7 +19,6 @@ function toPercent(loaded, total) {
   return Math.min(100, Math.round((loaded / total) * 100));
 }
 
-/** Identisch zur reinen `toProgressEvents()`-Logik aus progress-ajax.ts. */
 function toProgressEvents() {
   return (source) =>
     source.pipe(
@@ -81,9 +82,7 @@ function selectResult() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Upload-Demo
-// ---------------------------------------------------------------------------
+// Upload
 
 const uploadInput = document.getElementById('upload-input');
 const uploadButton = document.getElementById('upload-button');
@@ -126,9 +125,7 @@ uploadButton.addEventListener('click', () => {
   });
 });
 
-// ---------------------------------------------------------------------------
-// Download-Demo
-// ---------------------------------------------------------------------------
+// Download
 
 const downloadUrlInput = document.getElementById('download-url');
 const downloadButton = document.getElementById('download-button');

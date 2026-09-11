@@ -1,26 +1,25 @@
 /**
- * progress-ajax.marble.test.ts
- * ------------------------------------------------------------------
- * Marble-Tests für die generische Upload-/Download-Fortschritts-
- * Pipeline aus `progress-ajax.ts`.
+ * Marble-Tests für die generische Upload-/Download-Fortschrittspipeline
+ * aus progress-ajax.ts.
  *
- * Bewusste Design-Entscheidung: Wir testen NICHT das echte `ajax()`
- * (das würde einen echten Browser/XHR bzw. Server voraussetzen und
- * ist damit für synchrone Marble-Tests ungeeignet). Stattdessen:
+ * Bewusste Design-Entscheidung: Der echte ajax()-Aufruf wird nicht
+ * getestet, da dafür ein Browser, XHR und gegebenenfalls ein Server
+ * erforderlich wären. Das wäre für synchrone Marble-Tests ungeeignet.
  *
- *  a) Wir testen `toProgressEvents()` direkt – das ist die komplette
- *     fachliche Logik (Mapping Rohereignis -> Fortschritt/Ergebnis)
- *     und eine reine Funktion.
- *  b) Wir testen `ajaxWithProgress()` End-to-End, indem wir per
- *     Dependency Injection eine synthetische "Ajax-Factory"
- *     (eine `cold()`-Marble-Quelle) einspeisen.
+ * Stattdessen werden zwei Ebenen getestet:
+ *  a) toProgressEvents() wird direkt getestet. Der Operator enthält
+ *     die fachliche Transformationslogik und wandelt Rohereignisse
+ *     in Fortschritts- und Ergebnisereignisse um.
+ *  b) ajaxWithProgress() wird End-to-End getestet. Über Dependency
+ *     Injection wird eine synthetische Ajax-Factory in Form einer
+ *     cold()-Marble-Quelle bereitgestellt.
  *
- * Test-Runner: der in Node.js eingebaute `node:test` (kein externes
- * Test-Framework nötig) zusammen mit `node:assert` und RxJS'
- * eigenem `TestScheduler`.
+ * Test-Runner: Node.js' integriertes node:test ohne externes
+ * Test-Framework, zusammen mit node:assert und dem RxJS
+ * TestScheduler.
  *
- * Ausführen (nach `npm install` im Projektordner):
- *   npm test
+ * Ausführen (nach npm install im Projektverzeichnis):
+ * npm test
  */
 
 import { describe, it } from 'node:test';
@@ -192,8 +191,6 @@ describe('ajaxWithProgress() – End-to-End mit injizierter Ajax-Factory', () =>
       ).toBe(expected, values);
     });
 
-    // run() flusht den TestScheduler synchron, bevor es zurückkehrt –
-    // an dieser Stelle wurde die Factory also bereits aufgerufen.
     assert.deepEqual(receivedConfig, {
       url: '/download',
       method: 'GET',

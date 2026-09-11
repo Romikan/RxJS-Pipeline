@@ -1,40 +1,64 @@
-# RxJS AJAX-Fortschritts-Pipeline (Upload & Download)
+# RxJS AJAX-Fortschritts-Pipeline für Upload und Download
 
-Eine generische, framework-freie RxJS-Pipeline, die AJAX-Uploads **und**
--Downloads mit einheitlichem, prozentualem Fortschritt kapselt.
+Eine generische, framework-freie RxJS-Pipeline für AJAX-Requests mit einheitlicher, prozentualer Fortschrittsanzeige bei **Uploads und Downloads**.
 
 ## Architektur
 
-```
+Die Pipeline besteht aus einer reinen Transformationslogik und einer Anbindung an `rxjs/ajax`:
+
+```text
 src/progress-ajax.ts
-├── toProgressEvents()   – reine Transformation: Rohereignis -> {progress|result}
-├── ajaxWithProgress()   – verdrahtet rxjs/ajax() mit toProgressEvents()
-├── selectPercent(dir)   – Hilfsoperator: nur Prozentwerte einer Richtung
-└── selectResult()       – Hilfsoperator: nur die finale Server-Antwort
+
+├── toProgressEvents()  – transformiert Rohereignisse in { progress | result }
+├── ajaxWithProgress()  – verbindet rxjs/ajax mit toProgressEvents()
+├── selectPercent(dir)  – extrahiert die Prozentwerte einer Richtung
+└── selectResult()      – extrahiert die finale Server-Antwort
 ```
 
-`rxjs/ajax` liefert bei aktiviertem `includeUploadProgress` /
-`includeDownloadProgress` zusätzlich zur eigentlichen Antwort
-Zwischenereignisse vom Typ `upload_progress`, `upload_load`,
-`download_progress` und `download_load`. `toProgressEvents()` bildet diese
-auf ein einheitliches Modell ab:
+Bei aktivierten Optionen `includeUploadProgress` bzw. `includeDownloadProgress` liefert `rxjs/ajax` neben der eigentlichen Antwort zusätzliche Zwischenereignisse, unter anderem:
+
+* `upload_progress`
+* `upload_load`
+* `download_progress`
+* `download_load`
+
+`toProgressEvents()` transformiert diese Rohereignisse in ein einheitliches Modell:
 
 ```ts
 type AjaxProgressOrResult<T> =
-  | { type: 'progress'; direction: 'upload' | 'download'; loaded: number; total: number; percent: number }
-  | { type: 'result'; status: number; response: T };
+  | {
+      type: 'progress';
+      direction: 'upload' | 'download';
+      loaded: number;
+      total: number;
+      percent: number;
+    }
+  | {
+      type: 'result';
+      status: number;
+      response: T;
+    };
 ```
 
-Der Prozentwert wird als `Math.round(loaded / total * 100)` berechnet
-(0, falls `total` unbekannt ist, z. B. bei `chunked` Transfer-Encoding ohne
-`Content-Length`).
-
-### Verwendung
+Der Fortschritt wird anhand der geladenen und übertragenen Daten berechnet:
 
 ```ts
-import { ajaxWithProgress, selectPercent, selectResult } from './progress-ajax';
+Math.round(loaded / total * 100)
+```
 
-// Upload
+Ist die Gesamtgröße (`total`) nicht bekannt, wird `0` als Prozentwert verwendet. Das kann beispielsweise bei `chunked` Transfer-Encoding ohne `Content-Length` der Fall sein.
+
+## Verwendung
+
+### Upload
+
+```ts
+import {
+  ajaxWithProgress,
+  selectPercent,
+  selectResult,
+} from './progress-ajax';
+
 const upload$ = ajaxWithProgress<{ id: number }>({
   url: '/api/upload',
   method: 'POST',
@@ -48,53 +72,74 @@ upload$.pipe(selectPercent('upload')).subscribe((percent) => {
 upload$.pipe(selectResult()).subscribe((result) => {
   console.log('Hochgeladen, ID:', result.id);
 });
+```
 
-// Download
+### Download
+
+```ts
 const download$ = ajaxWithProgress<Blob>({
   url: '/api/files/report.pdf',
   responseType: 'blob',
 });
 
-download$.pipe(selectPercent('download')).subscribe((percent) => { /* ... */ });
-download$.pipe(selectResult()).subscribe((blob) => { /* ... */ });
+download$.pipe(selectPercent('download')).subscribe((percent) => {
+  // Fortschrittsanzeige aktualisieren
+});
+
+download$.pipe(selectResult()).subscribe((blob) => {
+  // Download verarbeiten
+});
 ```
 
-Da `ajaxWithProgress()` intern `share()` nutzt, teilen sich mehrere
-Subscriber (Fortschrittsanzeige + Ergebnis-Handler) denselben Request,
-statt ihn zu duplizieren.
+### Gemeinsame Nutzung des Requests
 
-## Warum ist das testbar, obwohl AJAX beteiligt ist?
+`ajaxWithProgress()` verwendet intern `share()`. Dadurch können mehrere Subscriber denselben Request gemeinsam nutzen, beispielsweise ein Subscriber für die Fortschrittsanzeige und ein weiterer für das finale Ergebnis.
 
-Echte HTTP-/XHR-Aufrufe sind für synchrone Marble-Tests ungeeignet.
-Deshalb ist die **gesamte fachliche Logik** (das Mapping der Rohereignisse)
-in die reine Funktion `toProgressEvents()` ausgelagert. Zusätzlich
-akzeptiert `ajaxWithProgress()` optional eine injizierbare `ajaxFactory`
-(Dependency Injection), sodass auch die komplette Pipeline ohne echten
-Netzwerkzugriff per Marble-Test geprüft werden kann – im Test wird dort
-einfach eine `cold()`-Quelle statt des echten `ajax()` übergeben.
+Der HTTP-Request wird dabei nicht für jeden Subscriber erneut ausgeführt.
+
+## Testbarkeit
+
+### Warum ist die Pipeline trotz AJAX testbar?
+
+Echte HTTP-/XHR-Aufrufe eignen sich nicht für synchrone Marble-Tests, da dafür eine Browserumgebung und ein tatsächlicher Netzwerkaufruf erforderlich wären.
+
+Deshalb ist die fachliche Transformationslogik in `toProgressEvents()` als reine Funktion umgesetzt. Sie kann unabhängig von echten HTTP-Aufrufen direkt getestet werden.
+
+Zusätzlich unterstützt `ajaxWithProgress()` eine injizierbare `ajaxFactory`. Dadurch kann für Tests eine synthetische RxJS-Quelle verwendet werden, anstatt tatsächlich `ajax()` aufzurufen.
+
+Im Marble-Test wird beispielsweise eine `cold()`-Quelle als Ersatz für die echte Ajax-Factory verwendet.
+
+Damit können sowohl
+
+* die reine Mapping-Logik von `toProgressEvents()`
+* als auch die vollständige Pipeline von `ajaxWithProgress()`
+
+ohne Netzwerkzugriff getestet werden.
 
 ## Tests ausführen
 
-Voraussetzung: Node.js ≥ 18 (bringt den eingebauten Test-Runner
-`node:test` mit – es wird also kein zusätzliches Test-Framework wie
-Jest/Mocha/Jasmine benötigt).
+Voraussetzung ist **Node.js ≥ 18**. Der Test-Runner `node:test` ist Bestandteil von Node.js, sodass kein zusätzliches Test-Framework wie Jest, Mocha oder Jasmine erforderlich ist.
 
 ```bash
 npm install
 npm test
 ```
 
-`npm test` kompiliert TypeScript nach `dist/` und führt anschließend alle
-`*.marble.test.js`-Dateien mit `node --test` aus. Assertions laufen über
-`node:assert`, RxJS' `TestScheduler` übernimmt Marble-Parsing und
-virtuelle Zeit.
+`npm test` kompiliert zunächst das TypeScript-Projekt nach `dist/` und führt anschließend die generierten `*.marble.test.js`-Dateien mit `node --test` aus.
 
-## Browser-Demo (Vanilla JS, kein Framework)
+Für die Assertions wird `node:assert` verwendet. Der RxJS `TestScheduler` übernimmt das Marble-Parsing und die Ausführung mit virtueller Zeit.
 
-`demo/index.html` + `demo/app.js` zeigen die Pipeline live im Browser:
-ein Datei-Input mit Upload-Fortschrittsbalken und ein URL-Feld mit
-Download-Fortschrittsbalken – ausschließlich mit HTML, CSS und
-DOM-APIs (kein Angular/React/Vue/jQuery). RxJS wird dort per ESM direkt
-von einem CDN geladen, damit kein Build-Schritt nötig ist. Für den
-produktiven Einsatz `/api/upload` bzw. die Download-URL an einen echten
-Endpunkt anpassen.
+## Browser-Demo
+
+Unter `demo/index.html` und `demo/app.js` befindet sich eine framework-freie Browser-Demo der Pipeline.
+
+Die Demo zeigt:
+
+* einen Datei-Upload mit Fortschrittsanzeige
+* einen Datei-Download mit Fortschrittsanzeige
+
+Die Oberfläche verwendet ausschließlich HTML, CSS und native DOM-APIs. Frameworks wie Angular, React, Vue oder jQuery werden nicht benötigt.
+
+RxJS wird als ES-Modul direkt über ein CDN geladen. Dadurch kann die Demo ohne vorherigen Build-Schritt direkt im Browser ausgeführt werden.
+
+Für den produktiven Einsatz müssen die verwendeten Endpunkte, insbesondere `/api/upload` und die Download-URL, an die jeweilige Anwendung angepasst werden.

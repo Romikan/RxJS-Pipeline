@@ -1,77 +1,31 @@
 <!DOCTYPE html>
+
 <html lang="de">
 <head>
-  <meta charset="UTF-8" />
-  <title>RxJS AJAX-Fortschritt – Demo (kein Framework)</title>
-  <style>
-    body {
-      font-family: system-ui, sans-serif;
-      max-width: 640px;
-      margin: 2rem auto;
-      padding: 0 1rem;
-      color: #1a1a1a;
-    }
-    section {
-      border: 1px solid #ddd;
-      border-radius: 8px;
-      padding: 1.25rem;
-      margin-bottom: 1.5rem;
-    }
-    h2 {
-      margin-top: 0;
-      font-size: 1.1rem;
-    }
-    .progress-track {
-      background: #eee;
-      border-radius: 4px;
-      height: 14px;
-      overflow: hidden;
-      margin: 0.75rem 0 0.25rem;
-    }
-    .progress-fill {
-      background: #2563eb;
-      height: 100%;
-      width: 0%;
-      transition: width 0.1s linear;
-    }
-    .status {
-      font-size: 0.85rem;
-      color: #555;
-    }
-    button {
-      cursor: pointer;
-      padding: 0.5rem 1rem;
-    }
-  </style>
+  <meta charset="UTF-8">
+  <title>RxJS AJAX-Fortschritt – Demo</title>
 </head>
 <body>
-  <h1>RxJS AJAX-Fortschritt (Vanilla JS)</h1>
-  <p>
-    Reine Web-Technologien (HTML, CSS, JavaScript-Module) + RxJS.
-    Kein UI-Framework beteiligt.
-  </p>
 
-  <section>
-    <h2>Upload mit Fortschritt</h2>
-    <input type="file" id="upload-input" />
-    <button id="upload-button">Datei hochladen</button>
-    <div class="progress-track"><div class="progress-fill" id="upload-fill"></div></div>
-    <div class="status" id="upload-status">Bereit.</div>
-  </section>
+  <h1>RxJS AJAX-Fortschritt</h1>
 
-  <section>
-    <h2>Download mit Fortschritt</h2>
-    <input
-      type="text"
-      id="download-url"
-      placeholder="URL einer Datei, z. B. /assets/beispiel.pdf"
-      style="width: 70%"
-    />
-    <button id="download-button">Datei herunterladen</button>
-    <div class="progress-track"><div class="progress-fill" id="download-fill"></div></div>
-    <div class="status" id="download-status">Bereit.</div>
-  </section>
+  <h2>Upload</h2>
+  <input type="file" id="upload-input">
+  <button id="upload-button">Datei hochladen</button>
+  <progress id="upload-progress" value="0" max="100"></progress>
+  <span id="upload-status">Bereit.</span>
+
+  <h2>Download</h2>
+  <input
+    type="text"
+    id="download-url"
+    placeholder="/assets/beispiel.pdf"
+  >
+  <button id="download-button">Datei herunterladen</button>
+  <progress id="download-progress" value="0" max="100"></progress>
+  <span id="download-status">Bereit.</span>
 
   <script type="module" src="./app.js"></script>
+
 </body>
 </html>

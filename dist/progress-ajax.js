@@ -4,24 +4,98 @@
  * Generische, framework-freie RxJS-Pipeline für AJAX-Requests
  * (Upload UND Download) mit prozentualem Fortschritt.
  *
- * Design-Idee:
- * 1. `ajax()` aus `rxjs/ajax` liefert bei aktiviertem
- *    `includeUploadProgress` / `includeDownloadProgress` zusätzlich
- *    zu der eigentlichen Antwort auch Zwischenereignisse vom Typ
- *    'upload_progress', 'upload_load', 'download_progress' und
- *    'download_load'.
- * 2. `toProgressEvents()` ist eine REINE Transformation (kein I/O),
- *    die diese Rohereignisse in ein einheitliches, leicht
- *    konsumierbares Format überführt. Weil sie rein ist, lässt sie
- *    sich hervorragend mit Marble-Tests prüfen – unabhängig von
- *    echten XHR-Aufrufen.
- * 3. `ajaxWithProgress()` verdrahtet `ajax()` mit `toProgressEvents()`
- *    und erlaubt zusätzlich das Injizieren einer alternativen
- *    "Ajax-Factory" (Dependency Injection), damit auch die komplette
- *    Pipeline ohne echten Netzwerkzugriff testbar ist.
+ * Diese Version verwendet bewusst KEIN `rxjs/ajax`, sondern einen
+ * selbst geschriebenen, dünnen Wrapper (`xhrRequest`) um die native
+ * `XMLHttpRequest`-API. Das ist die Web-Technologie, die im Browser
+ * für Upload-/Download-Fortschritt zuständig ist (`xhr.upload.onprogress`
+ * und `xhr.onprogress`); `fetch()` bietet dafür bislang keine
+ * gleichwertige, breit unterstützte Fortschritts-API.
+ *
+ * Architektur (bewusst in zwei Schichten getrennt):
+ *
+ * 1. `xhrRequest()` – IMPURE. Erzeugt ein `XMLHttpRequest`, verdrahtet
+ *    dessen Events und gibt sie als Observable von rohen Ereignissen
+ *    (`RawAjaxEvent<T>`) aus. Bei `unsubscribe()` wird der Request via
+ *    `xhr.abort()` sauber abgebrochen.
+ * 2. `toProgressEvents()` – REIN (kein I/O). Wandelt die rohen
+ *    Ereignisse in ein einheitliches, leicht konsumierbares Format
+ *    um. Weil sie rein ist, lässt sie sich mit Marble-Tests prüfen,
+ *    unabhängig von echtem XHR/Netzwerk.
+ * 3. `ajaxWithProgress()` verdrahtet `xhrRequest()` mit
+ *    `toProgressEvents()` und erlaubt zusätzlich das Injizieren einer
+ *    alternativen "Request-Factory" (Dependency Injection), damit auch
+ *    die komplette Pipeline ohne echten Netzwerkzugriff testbar ist.
  */
+import { Observable } from 'rxjs';
 import { filter, map, share } from 'rxjs/operators';
-import { ajax } from 'rxjs/ajax';
+// ---------------------------------------------------------------------------
+// XMLHttpRequest-Wrapper (impur – kapselt den einzigen Seiteneffekt)
+// ---------------------------------------------------------------------------
+/**
+ * Führt einen Request über `new XMLHttpRequest()` aus und meldet dabei
+ * Upload- UND Download-Fortschritt als Observable-Ereignisse.
+ *
+ * Ereignistypen (angelehnt an die native XHR-Terminologie):
+ *  - 'upload_progress'   -> xhr.upload.onprogress
+ *  - 'upload_load'       -> xhr.upload.onload (Upload technisch fertig)
+ *  - 'download_progress' -> xhr.onprogress
+ *  - 'download_load'     -> xhr.onload (enthält die Server-Antwort)
+ *
+ * Bricht den Request automatisch ab, wenn das Observable "unsubscribed"
+ * wird (z. B. weil der Nutzer die Ansicht verlässt).
+ */
+export function xhrRequest(config) {
+    return new Observable((subscriber) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open(config.method ?? 'GET', config.url, true);
+        if (config.responseType) {
+            xhr.responseType = config.responseType;
+        }
+        if (config.withCredentials !== undefined) {
+            xhr.withCredentials = config.withCredentials;
+        }
+        if (config.headers) {
+            for (const [key, value] of Object.entries(config.headers)) {
+                xhr.setRequestHeader(key, value);
+            }
+        }
+        xhr.upload.onprogress = (event) => {
+            subscriber.next({ type: 'upload_progress', loaded: event.loaded, total: event.total });
+        };
+        xhr.upload.onload = (event) => {
+            subscriber.next({ type: 'upload_load', total: event.total });
+        };
+        xhr.onprogress = (event) => {
+            subscriber.next({ type: 'download_progress', loaded: event.loaded, total: event.total });
+        };
+        xhr.onload = () => {
+            subscriber.next({
+                type: 'download_load',
+                status: xhr.status,
+                response: xhr.response,
+            });
+            subscriber.complete();
+        };
+        xhr.onerror = () => {
+            subscriber.error(new Error(`Netzwerkfehler bei ${config.method ?? 'GET'} ${config.url}`));
+        };
+        xhr.ontimeout = () => {
+            subscriber.error(new Error(`Timeout bei ${config.method ?? 'GET'} ${config.url}`));
+        };
+        xhr.onabort = () => {
+            subscriber.error(new Error(`Request abgebrochen: ${config.method ?? 'GET'} ${config.url}`));
+        };
+        xhr.send(config.body ?? null);
+        // Teardown-Funktion: läuft bei unsubscribe() bzw. sobald complete/error
+        // gefeuert hat. XHR ist danach bereits DONE, ein erneutes abort() ist
+        // dann ein No-op.
+        return () => {
+            if (xhr.readyState !== XMLHttpRequest.DONE) {
+                xhr.abort();
+            }
+        };
+    });
+}
 // ---------------------------------------------------------------------------
 // Reine Hilfsfunktionen
 // ---------------------------------------------------------------------------
@@ -33,9 +107,9 @@ function toPercent(loaded, total) {
 }
 /**
  * Reiner, testbarer Operator:
- * wandelt die von rxjs/ajax gelieferten Rohereignisse in ein
+ * wandelt die von `xhrRequest()` gelieferten Rohereignisse in ein
  * einheitliches Fortschritts-/Ergebnis-Format um. Unbekannte
- * Ereignistypen (z. B. das interne 'open'-Ereignis) werden verworfen.
+ * Ereignistypen werden verworfen.
  */
 export function toProgressEvents() {
     return (source) => source.pipe(map((event) => {
@@ -88,16 +162,11 @@ export function toProgressEvents() {
  * Die Richtung ergibt sich implizit daraus, welche Ereignistypen
  * der Browser tatsächlich feuert.
  *
- * `ajaxFactory` ist standardmäßig das echte `ajax()` aus `rxjs/ajax`,
- * kann aber (z. B. in Tests) durch eine synthetische Quelle ersetzt
- * werden.
+ * `requestFactory` ist standardmäßig `xhrRequest` (echtes XHR), kann
+ * aber (z. B. in Tests) durch eine synthetische Quelle ersetzt werden.
  */
-export function ajaxWithProgress(config, ajaxFactory = (c) => ajax(c)) {
-    return ajaxFactory({
-        ...config,
-        includeUploadProgress: true,
-        includeDownloadProgress: true,
-    }).pipe(toProgressEvents(), 
+export function ajaxWithProgress(config, requestFactory = xhrRequest) {
+    return requestFactory(config).pipe(toProgressEvents(), 
     // share(): mehrere Abonnenten (z. B. UI-Fortschrittsbalken UND
     // Ergebnis-Handler) sollen sich einen einzigen Request teilen.
     share());

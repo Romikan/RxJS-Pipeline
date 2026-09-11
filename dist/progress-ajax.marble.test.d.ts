@@ -4,9 +4,9 @@
  * Marble-Tests für die generische Upload-/Download-Fortschritts-
  * Pipeline aus `progress-ajax.ts`.
  *
- * Bewusste Design-Entscheidung: Wir testen NICHT das echte `ajax()`
- * (das würde einen echten Browser/XHR bzw. Server voraussetzen und
- * ist damit für synchrone Marble-Tests ungeeignet). Stattdessen:
+ * Bewusste Design-Entscheidung: Wir testen NICHT das echte
+ * `XMLHttpRequest` (das würde einen echten Browser/Server voraussetzen
+ * und ist damit für synchrone Marble-Tests ungeeignet). Stattdessen:
  *
  *  a) Wir testen `toProgressEvents()` direkt – das ist die komplette
  *     fachliche Logik (Mapping Rohereignis -> Fortschritt/Ergebnis)

@@ -4,9 +4,9 @@
  * Marble-Tests für die generische Upload-/Download-Fortschritts-
  * Pipeline aus `progress-ajax.ts`.
  *
- * Bewusste Design-Entscheidung: Wir testen NICHT das echte `ajax()`
- * (das würde einen echten Browser/XHR bzw. Server voraussetzen und
- * ist damit für synchrone Marble-Tests ungeeignet). Stattdessen:
+ * Bewusste Design-Entscheidung: Wir testen NICHT das echte
+ * `XMLHttpRequest` (das würde einen echten Browser/Server voraussetzen
+ * und ist damit für synchrone Marble-Tests ungeeignet). Stattdessen:
  *
  *  a) Wir testen `toProgressEvents()` direkt – das ist die komplette
  *     fachliche Logik (Mapping Rohereignis -> Fortschritt/Ergebnis)
@@ -139,7 +139,7 @@ describe('ajaxWithProgress() – End-to-End mit injizierter Ajax-Factory', () =>
             expectObservable(ajaxWithProgress({ url: '/upload', method: 'POST' }, fakeAjax)).toBe(expected, values);
         });
     });
-    it('reicht die übergebene Konfiguration inkl. Progress-Flags an die Factory weiter', () => {
+    it('reicht die übergebene Konfiguration unverändert an die Factory weiter', () => {
         let receivedConfig;
         createScheduler().run(({ cold, expectObservable }) => {
             const fakeAjax = (config) => {
@@ -153,12 +153,9 @@ describe('ajaxWithProgress() – End-to-End mit injizierter Ajax-Factory', () =>
             expectObservable(ajaxWithProgress({ url: '/download', method: 'GET' }, fakeAjax)).toBe(expected, values);
         });
         // run() flusht den TestScheduler synchron, bevor es zurückkehrt –
-        // an dieser Stelle wurde die Factory also bereits aufgerufen.
-        assert.deepEqual(receivedConfig, {
-            url: '/download',
-            method: 'GET',
-            includeUploadProgress: true,
-            includeDownloadProgress: true,
-        });
+        // an dieser Stelle wurde die Factory also bereits aufgerufen. Anders
+        // als bei rxjs/ajax() sind hier keine zusätzlichen "includeXProgress"-
+        // Flags nötig: xhrRequest() meldet Fortschritt immer.
+        assert.deepEqual(receivedConfig, { url: '/download', method: 'GET' });
     });
 });
