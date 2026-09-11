@@ -1,43 +1,32 @@
 /**
- * progress-ajax.ts
- * ------------------------------------------------------------------
- * Generische, framework-freie RxJS-Pipeline für AJAX-Requests
- * (Upload UND Download) mit prozentualem Fortschritt.
+ * Generische, RxJS-Pipeline für AJAX-Requests mit Fortschritts-
+ * anzeige bei Upload und Download.
  *
- * Diese Version verwendet bewusst KEIN `rxjs/ajax`, sondern einen
- * selbst geschriebenen, dünnen Wrapper (`xhrRequest`) um die native
- * `XMLHttpRequest`-API. Das ist die Web-Technologie, die im Browser
- * für Upload-/Download-Fortschritt zuständig ist (`xhr.upload.onprogress`
- * und `xhr.onprogress`); `fetch()` bietet dafür bislang keine
- * gleichwertige, breit unterstützte Fortschritts-API.
- *
- * Architektur (bewusst in zwei Schichten getrennt):
- *
- * 1. `xhrRequest()` – IMPURE. Erzeugt ein `XMLHttpRequest`, verdrahtet
- *    dessen Events und gibt sie als Observable von rohen Ereignissen
- *    (`RawAjaxEvent<T>`) aus. Bei `unsubscribe()` wird der Request via
- *    `xhr.abort()` sauber abgebrochen.
- * 2. `toProgressEvents()` – REIN (kein I/O). Wandelt die rohen
- *    Ereignisse in ein einheitliches, leicht konsumierbares Format
- *    um. Weil sie rein ist, lässt sie sich mit Marble-Tests prüfen,
- *    unabhängig von echtem XHR/Netzwerk.
- * 3. `ajaxWithProgress()` verdrahtet `xhrRequest()` mit
- *    `toProgressEvents()` und erlaubt zusätzlich das Injizieren einer
- *    alternativen "Request-Factory" (Dependency Injection), damit auch
- *    die komplette Pipeline ohne echten Netzwerkzugriff testbar ist.
+ * Aufbau:
+ * 1. ajax() aus rxjs/ajax liefert bei aktivierten Optionen
+ *    includeUploadProgress bzw. includeDownloadProgress neben
+ *    der eigentlichen Response auch Fortschrittsereignisse wie
+ *    upload_progress, upload_load, download_progress und
+ *    download_load.
+ * 2. toProgressEvents() transformiert diese Rohereignisse REIN
+ *    und ohne I/O in ein einheitliches, einfach konsumierbares
+ *    Format. Dadurch kann die Transformation unabhängig von
+ *    echten XHR-Aufrufen, z. B. mit Marble-Tests, getestet werden.
+ * 3. ajaxWithProgress() verbindet ajax() mit
+ *    toProgressEvents(). Zusätzlich kann eine alternative
+ *    "Ajax-Factory" injiziert werden. So lässt sich die komplette
+ *    Pipeline ohne echten Netzwerkzugriff testen.
  */
 import { Observable } from 'rxjs';
+import { AjaxConfig } from 'rxjs/ajax';
 export type ProgressDirection = 'upload' | 'download';
-/** Ein einzelnes Fortschritts-Ereignis (Upload ODER Download). */
 export interface AjaxProgressEvent {
     readonly type: 'progress';
     readonly direction: ProgressDirection;
     readonly loaded: number;
     readonly total: number;
-    /** Ganzzahliger Prozentwert 0–100 (0, falls `total` unbekannt ist). */
     readonly percent: number;
 }
-/** Das finale Ergebnis des Requests. */
 export interface AjaxResultEvent<T> {
     readonly type: 'result';
     readonly status: number;
@@ -45,10 +34,10 @@ export interface AjaxResultEvent<T> {
 }
 export type AjaxProgressOrResult<T> = AjaxProgressEvent | AjaxResultEvent<T>;
 /**
- * Minimaler Ausschnitt der von `xhrRequest()` gelieferten Rohereignisse,
- * den wir für das Mapping benötigen. Damit ist `toProgressEvents()`
- * unabhängig von einer konkreten Quelle testbar (siehe Marble-Tests:
- * dort werden einfache Objekte dieser Form verwendet).
+ * Reduzierter Ausschnitt der von rxjs/ajax erzeugten Rohereignisse,
+ * der für das Mapping relevant ist. Dadurch bleibt toProgressEvents()
+ * unabhängig vom konkreten AjaxResponse<T>-Typ und kann in den
+ * Marble-Tests mit einfachen Objekten dieser Struktur getestet werden.
  */
 export interface RawAjaxEvent<T> {
     type: string;
@@ -57,51 +46,20 @@ export interface RawAjaxEvent<T> {
     status?: number;
     response?: T;
 }
-/** Konfiguration für einen Request – bewusst schlank gehalten. */
-export interface XhrRequestConfig {
-    url: string;
-    method?: string;
-    headers?: Record<string, string>;
-    body?: XMLHttpRequestBodyInit | Document | null;
-    responseType?: XMLHttpRequestResponseType;
-    withCredentials?: boolean;
-}
-/** Signatur einer Funktion, die einen "rohen" Ereignis-Stream liefert. */
-export type RequestFactory<T> = (config: XhrRequestConfig) => Observable<RawAjaxEvent<T>>;
+/** Beschreibt eine Funktion, die einen Stream unverarbeiteter Ajax-Ereignisse liefert. */
+export type AjaxFactory<T> = (config: AjaxConfig) => Observable<RawAjaxEvent<T>>;
 /**
- * Führt einen Request über `new XMLHttpRequest()` aus und meldet dabei
- * Upload- UND Download-Fortschritt als Observable-Ereignisse.
- *
- * Ereignistypen (angelehnt an die native XHR-Terminologie):
- *  - 'upload_progress'   -> xhr.upload.onprogress
- *  - 'upload_load'       -> xhr.upload.onload (Upload technisch fertig)
- *  - 'download_progress' -> xhr.onprogress
- *  - 'download_load'     -> xhr.onload (enthält die Server-Antwort)
- *
- * Bricht den Request automatisch ab, wenn das Observable "unsubscribed"
- * wird (z. B. weil der Nutzer die Ansicht verlässt).
- */
-export declare function xhrRequest<T = unknown>(config: XhrRequestConfig): Observable<RawAjaxEvent<T>>;
-/**
- * Reiner, testbarer Operator:
- * wandelt die von `xhrRequest()` gelieferten Rohereignisse in ein
- * einheitliches Fortschritts-/Ergebnis-Format um. Unbekannte
- * Ereignistypen werden verworfen.
+ * Reiner und testbarer Operator:
+ * transformiert die von rxjs/ajax gelieferten Rohereignisse in ein
+ * einheitliches Format für Fortschritt und Ergebnis. Nicht relevante
+ * oder unbekannte Ereignistypen, z. B. das interne open-Ereignis,
+ * werden verworfen.
  */
 export declare function toProgressEvents<T>(): (source: Observable<RawAjaxEvent<T>>) => Observable<AjaxProgressOrResult<T>>;
 /**
- * Generische AJAX-Pipeline mit Upload- UND Download-Fortschritt.
- * Funktioniert unverändert für:
- *  - Uploads (z. B. POST/PUT mit FormData/Blob als `body`)
- *  - Downloads (z. B. GET einer großen Datei)
- * Die Richtung ergibt sich implizit daraus, welche Ereignistypen
- * der Browser tatsächlich feuert.
- *
- * `requestFactory` ist standardmäßig `xhrRequest` (echtes XHR), kann
- * aber (z. B. in Tests) durch eine synthetische Quelle ersetzt werden.
+ * Generische AJAX-Pipeline mit Unterstützung für Upload- und
+ * Download-Fortschritt.
  */
-export declare function ajaxWithProgress<T = unknown>(config: XhrRequestConfig, requestFactory?: RequestFactory<T>): Observable<AjaxProgressOrResult<T>>;
-/** Hilfsoperator: nur die Prozentwerte EINER Richtung als Zahlen-Stream. */
+export declare function ajaxWithProgress<T = unknown>(config: AjaxConfig, ajaxFactory?: AjaxFactory<T>): Observable<AjaxProgressOrResult<T>>;
 export declare function selectPercent(direction: ProgressDirection): (source: Observable<AjaxProgressOrResult<unknown>>) => Observable<number>;
-/** Hilfsoperator: nur das finale Ergebnis (Response-Body). */
 export declare function selectResult<T>(): (source: Observable<AjaxProgressOrResult<T>>) => Observable<T>;
